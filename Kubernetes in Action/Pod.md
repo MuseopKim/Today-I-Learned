@@ -290,3 +290,227 @@ spec:
 ```bash
 > curl localhost:8888
 ```
+
+---
+
+## 레이블을 이용한 파드 구성
+
+파드의 수가 증가함에 따라 파드를 분류할 필요성이 생긴다. 모든 개발자, 시스템 관리자는 어떤 파드가 어떤 것인지 쉽게 알 수 있도록 임의의 기준 하에 작은 그룹으로 만들 수 있는 방법이 필요하다. 레이블을 사용하면 파드와 다른 쿠버네티스 오브젝트를 논리적으로 그룹화 할 수 있다.
+
+### 레이블
+
+레이블은 파드와 모든 다른 쿠버네티스 리소스를 조직화 할 수 있다. 레이블은 리소스에 첨부하는 키 값 쌍이며, 이 쌍으로 레이블 셀렉터를 사용해 리소스를 선택한다.
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/bd85f315-95e0-4a40-a281-07bed12be92d/Untitled.png)
+
+### 파드 생성 시 레이블 지정
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: museop-kubia-manual-v2
+  labels:
+    creation_method: manual # 레이블 지정
+    env: prod
+spec:
+  containers:
+    - image: museopkim/kubia
+      name: kubia
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+```
+
+```bash
+# 파드 실행
+> kubectl create -f museop-kubia-manual-with-labels.yml
+```
+
+```bash
+# 레이블 표시
+> kubectl get pods --show-labels
+```
+
+```bash
+# 파드별 특정 레이블 조회
+> kubectl get pods -L creation_method,env
+```
+
+### 기존 파드 레이블 수정
+
+```bash
+# 레이블 추가
+> kubectl label pods museop-kubia-manual creation_method=manual
+
+# 기존 레이블 수정
+> kubectl label pods museop-kubia-manual-v2 env=debug --overwrite
+```
+
+---
+
+## 레이블 셀렉터의 활용
+
+레이블 셀렉터는 특정 레이블로 태그된 파드의 부분 집합을 선택해 원하는 작업을 수행한다. 레이블 셀렉터는 특정 값과 레이블을 갖는지 여부에 따라 리소스를 필터링 한다. 필터링 조건은 다음과 같다.
+
+- 특정한 키를 포함하거나 포함하지 않는 레이블
+- 특정한 키와 값을 가진 레이블
+- 특정한 키를 갖고 있지만 다른 값을 가진 레이블
+
+### 레이블 셀렉터를 활용한 파드 나열
+
+앞서 지정한 `creation_method` 를 기준으로 파드를 보려면 다음의 명령을 실행한다.
+
+```bash
+> kubectl get pods -l creation_method=manual
+```
+
+`env` 레이블을 지니고 있지만 값은 고려하지 않는 파드 셀렉트
+
+```bash
+> kubectl get pods -l env
+```
+
+`env` 레이블을 지니고 있지 않는 파드 셀렉트
+
+```bash
+> kubectl get pods -l '!env'
+```
+
+`creation_method` 레이블을 지닌 파드 중 값이 manual이 아닌 것
+
+```bash
+> kubectl get pods -l creation_method!=manual
+```
+
+### 레이블 셀렉터에서 여러 조건 사용
+
+셀렉터는 쉼표로 구분 된 여러 기준을 포함하는 것도 가능하다. 셀렉터를 통해 선택하기 위해서는 리소스가 모든 기준을 만족해야 한다.
+
+---
+
+## 레이블 셀렉터를 이용한 파드 스케줄링 제한
+
+쿠버네티스는 모든 노드를 하나의 대규모 배포 플랫폼으로 여기기 때문에 파드가 어느 노드에 스케줄링 됐는가는 중요하지 않다. 각 파드는 요청한 만큼의 정확한 리소스(CPU, 메모리)를 할당 받는다.
+
+그러나 간혹 스케줄링할 위치를 결정할 필요가 있을 수 있다. 예를 들어 워커 노드가 HDD나 SDD를 가지고 있는 경우, 특정 파드를 둘 중 하나로 선택해 스케줄링 할 수 있는 케이스가 있다. 또한 GPU 가속을 제공하는 노드에만 GPU 계산이 필요한 파드를 스케줄링 할 수 있다.
+
+그러나 이러한 방법은 애플리케이션이 인프라스트럭쳐와 결합되는 요소여서 쿠버네티스의 철학에 썩 좋은 방법이라고는 할 수 없다. 정확한 노드를 지정하는 대신 필요한 노드 요구사항을 미리 기술하여 쿠버네티스가 요구 사항을 만족하는 노드를 선택하도록 한다. 이를 노드 레이블, 레이블 셀렉터를 통해 실현할 수 있다.
+
+### 레이블을 사용한 워커 노드의 분류
+
+노드를 포함한 모든 쿠버네티스 오브젝트에는 레이블링을 할 수 있다. 클러스터에 GPU를 가지고 있는 노드가 있다고 가정한다. 이를 가지고 있음을 레이블을 통해 노출할 수 있다.
+
+```bash
+> kubectl label node first-kind-multi-node-worker2 gpu=true
+```
+
+### 특정 노드에 파드 스케줄링
+
+아래 manifest는 GPU를 필요로 하는 새로운 파드 배포를 가정한다.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kubia-gpu
+spec:
+  nodeSelector:
+    gpu: "true" # gpu=true 레이블을 포함한 노드에 이 파드를 배포한다.
+  containers:
+    - image: museopkim/kubia
+      name: kubia
+```
+
+```bash
+> kubectl create -f museop-kubia-gpu.yaml
+```
+
+### 하나의 특정 노드에 스케줄링
+
+각 노드에는 키를 [kubernetes.io/hostname](http://kubernetes.io/hostname), 값에 호스트 이름을 설정한 고유한 레이블이 있기 때문에 파드를 특정한 노드로 스케줄링 하는 것도 가능하다. 그러나 nodeSelector에 실제 호스트 이름을 지정 할 경우 만약 해당 노드가 오프 상태라면 파드가 스케줄링 되지 않을 수도 있다.
+
+노드는 개별 노드를 컨트롤 하기 보다는 레이블 셀렉터를 통해 지정한 특정 기준을 만족하는 노드의 논리적인 그룹을 다루는 것이 올바른 방향이다.
+
+---
+
+## 파드에 애노테이션 부여하기
+
+파드 및 다른 오브젝트는 레이블 외에 애노테이션을 가질 수 있다. 애노테이션은 키 값 쌍으로 레이블과 비슷한 성격을 가지고 있지만 식별 정보를 갖지 않는다. 즉, 레이블은 오브젝트를 그룹화 하는데 사용할 수 있지만 애노테이션은 그렇게 할 수 없다. 또한 셀렉터도 존재하지 않는다.
+
+애노테이션은 쿠버네티스에 새로운 기능을 추가할 때 주로 사용된다. 또한 파드나 다른 오브젝트에 설명을 추가할 때 유용하게 사용할 수 있다.
+
+### 애노테이션 추가 및 수정
+
+```bash
+> kubectl annotate pod museop-kubia-manual museop.com/someannotation="foo bar"
+```
+
+### 애노테이션 조회
+
+```bash
+> kubectl describe pod museop-kubia-manual
+```
+
+---
+
+## 네임스페이스를 사용한 리소스 그룹화
+
+쿠버네티스 네임스페이스는 오브젝트 이름의 범위를 제공한다. 모든 리소스를 하나의 단일 네임스페이스에 둘 수 있고, 여러 네임스페이스로 분류를 할 수도 있다. 이렇게 분리된 네임스페이스는 같은 리소스 이름을 다른 네임스페이스에 걸쳐 여러번 사용할 수 있게 해준다.
+
+대부분의 리소스 유형은 네임스페이스 안에 속할 수 있지만, 노드는 그렇지 않다. 노드는 전역이며 단일 네임스페이스에 얽매이지 않는다.
+
+### 네임스페이스 조회
+
+```bash
+> kubectl get ns
+```
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/dd354cba-c43f-43b3-b54e-c806b00d0d1f/Untitled.png)
+
+네임스페이스를 명시적으로 지정하지 않으면 kubectl 명령어는 항상 기본적으로 default 네임스페이스에 속해 있는 오브젝트만 표시한다.
+
+### 네임스페이스 생성
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: custom-namespace
+```
+
+### 특정 네임스페이스 안에 리소스 만들기
+
+```bash
+> kubectl create -f museop-kubia-yaml -n custom-namespace
+```
+
+---
+
+## 파드 중지, 제거
+
+### 이름으로 파드 삭제
+
+```bash
+> kubectl delete pod museop-kubia-gpu
+```
+
+### 레이블 셀렉터를 이용한 파드 삭제
+
+```bash
+> kubectl delete pod -l creation_method=manual
+```
+
+![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/acec1a12-68b2-4073-990d-fb6270f029c8/Untitled.png)
+
+### 네임스페이스 전체 삭제
+
+```bash
+> kubectl delete ns custom-namespace
+```
+
+### 네임스페이스를 유지 하면서 내부의 모든 파드 삭제
+
+```bash
+> kubectl delete pods --all
+```
